@@ -7,7 +7,9 @@
 #include <fstream>
 #include <vector>
 
-#include <zlib/zlib.h>
+#include "boost/iostreams/filtering_streambuf.hpp"
+#include "boost/iostreams/copy.hpp"
+#include "boost/iostreams/filter/gzip.hpp"
 
 // clang ginfo.cpp -o gd.exe -lshell32 -lole32
 
@@ -18,6 +20,12 @@ bool REPL(string& str, const string& from, const string& to) {
     if (start_pos == string::npos) return false;
     str.replace(start_pos, from.length(), to);
     return true;
+}
+
+char* STRBYTE(string S) {
+    char* BYTES = new char [S.size() + 1];
+    strncpy(BYTES, S.c_str(), sizeof(BYTES));
+    return BYTES;
 }
 
 string READ_FILE(string FILE) {
@@ -48,8 +56,7 @@ string GET_CC(string WHICH = "LocalLevels") {
 }
 
 string DECODE_XOR(string TEXT, int KEY) {
-    char* BYTES = new char [TEXT.size() + 1];
-    strncpy(BYTES, TEXT.c_str(), sizeof(BYTES));
+    char* BYTES = STRBYTE(TEXT);
 
     string RESULT;
 
@@ -80,18 +87,17 @@ string DECODE_BASE64(const string &in) {
 }
 
 string DECOMPRESS_GZIP(const string& DATA) {
-    z_stream stream;
+    using namespace boost::iostreams::zlib;
+    using namespace boost::iostreams;
 
-    #define CHUNK 16384
-
-    unsigned char in[CHUNK];
-    unsigned char out[CHUNK];
-
-    stream.avail_in = CHUNK;
-    stream.next_in = in;
-    stream.avail_out = CHUNK;
-    stream.next_out = out;
-
+    stringstream RES;
+    
+    filtering_streambuf<input> in;
+    in.push(gzip_decompressor());
+    in.push(STRBYTE(DATA));
+    boost::iostreams::copy(in, RES);
+    
+    return RES.str();
 }
 
 int main(int ARGC, char *ARGS[]) {
@@ -102,17 +108,19 @@ int main(int ARGC, char *ARGS[]) {
         string CCPATH = GET_CC();
         string CCCONTENTS = READ_FILE(CCPATH);
 
+        string XOR = DECODE_XOR(CCCONTENTS, 11);
+        REPL(XOR, "_", "/");
+        REPL(XOR, "-", "+");
+        REPL(XOR, "\0", "");
+        int REM = XOR.length() % 4;
+        if (REM > 0) for (int r = 0; r < REM; r++) { XOR += "="; }
+        string B64 = DECODE_BASE64(XOR);
+        string ZLIB = DECOMPRESS_GZIP(B64);
+
+        cout << ZLIB;
+
         for (int i = 0; i < ARGC - 1; i++) {
             string LEVEL_NAME = ARGS[i+1];
-
-            string XOR = DECODE_XOR(CCCONTENTS, 11);
-            REPL(XOR, "_", "/");
-            REPL(XOR, "-", "+");
-            REPL(XOR, "\0", "");
-            string B64 = DECODE_BASE64(XOR);
-            string ZLIB = DECOMPRESS_GZIP(B64);
-
-            cout << ZLIB;
         }
 
         cout << "\n---Finished! :)---\n";
