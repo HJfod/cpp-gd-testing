@@ -19,7 +19,7 @@
 
 #define CHUNK 16384
 
-// clang ginfo.cpp -o gd.exe -lshell32 -lole32
+// clang ginfo.cpp -o gd.exe -lshell32 -lole32 -L"path" -lzlib
 
 using namespace std;
 
@@ -31,9 +31,9 @@ bool REPL(string& str, const string& from, const string& to) {
 }
 
 char* STRBYTE(string S) {
-    char* BYTES = new char [S.size() + 1];
-    strncpy(BYTES, S.c_str(), sizeof(BYTES));
-    return BYTES;
+    char BYTES = new char [S.size() + 1];
+    strncpy($BYTES, S.c_str(), sizeof(BYTES));
+    return $BYTES;
 }
 
 string READ_FILE(string FILE) {
