@@ -4,7 +4,7 @@
             "name": "Win32",
             "includePath": [
                 "${workspaceFolder}/**",
-                "${workspaceFolder}/boost/iostreams"
+                "${workspaceFolder}/gzip"
             ],
             "defines": [
                 "_DEBUG",
