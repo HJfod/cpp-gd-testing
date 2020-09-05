@@ -6,8 +6,10 @@
 #include <Combaseapi.h>
 #include <fstream>
 #include <vector>
-#include "gzip/zlib.h"
 #include <assert.h>
+#include <regex>
+#include "ext/ZlibHelper.hpp"
+#include "ext/Base64.hpp"
 
 #if defined(MSDOS) || defined(OS2) || defined(WIN32) || defined(__CYGWIN__)
 #  include <fcntl.h>
@@ -19,43 +21,32 @@
 
 #define CHUNK 16384
 
-// clang ginfo.cpp -o gd.exe -lshell32 -lole32 -L"path" -lzlib
+// RUN COMMAND: clang ginfo.cpp ext/ZlibHelper.cpp -o gd.exe -L"." -lshell32 -lole32 -lzlib -m32 -std=c++17; ./gd.exe moi
 
-using namespace std;
-
-bool REPL(string& str, const string& from, const string& to) {
+bool REPL(std::string& str, const std::string& from, const std::string& to) {
     size_t start_pos = str.find(from);
-    if (start_pos == string::npos) return false;
+    if (start_pos == std::string::npos) return false;
     str.replace(start_pos, from.length(), to);
     return true;
 }
 
-char* STRBYTE(string S) {
-    char BYTES = new char [S.size() + 1];
-    strncpy($BYTES, S.c_str(), sizeof(BYTES));
-    return $BYTES;
-}
+std::vector<uint8_t> READ_FILE(std::string const& path) {
+    std::ifstream file(path, std::ios::binary);
 
-string READ_FILE(string FILE) {
-    string RESULT;
-    ifstream FS (FILE);
-    if (FS.is_open()) {
-        string LN;
-        while ( getline (FS, LN) ) {
-            RESULT += LN + "\n";
-        }
-        FS.close();
+    if (file.is_open()) {
+        return std::vector<uint8_t>(std::istreambuf_iterator(file), {});
     }
-    return RESULT;
+
+    return {};
 }
 
-string GET_CC(string WHICH = "LocalLevels") {
+std::string GET_CC(std::string WHICH = "LocalLevels") {
     wchar_t* localAppData = 0;
     SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, NULL, &localAppData);
 
-    wstring CCW (localAppData);
+    std::wstring CCW (localAppData);
 
-    string RESULT ( CCW.begin(), CCW.end() );
+    std::string RESULT ( CCW.begin(), CCW.end() );
     RESULT += "\\GeometryDash\\CC" + WHICH + ".dat";
 
     CoTaskMemFree(static_cast<void*>(localAppData));
@@ -63,107 +54,60 @@ string GET_CC(string WHICH = "LocalLevels") {
     return RESULT;
 }
 
-string DECODE_XOR(string TEXT, int KEY) {
-    char* BYTES = STRBYTE(TEXT);
-
-    string RESULT;
-
-    for (int i = 0; i < strlen(BYTES); i++) {
-        RESULT += BYTES[i] ^ KEY;
-    }
-
-    return RESULT;
+void DECODE_XOR(std::vector<uint8_t>& BYTES, int KEY) {
+    for (auto& b : BYTES)
+        b ^= KEY;
 }
 
-string DECODE_BASE64(const string &in) {
-    string out;
-
-    vector<int> T(256,-1);
-    for (int i=0; i<64; i++) T["ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"[i]] = i; 
-
-    int val=0, valb=-8;
-    for (unsigned char c : in) {
-        if (T[c] == -1) break;
-        val = (val<<6) + T[c];
-        valb += 6;
-        if (valb>=0) {
-            out.push_back(char((val>>valb)&0xFF));
-            valb-=8;
-        }
-    }
-    return out;
+std::string DECODE_BASE64(const std::string& str) {
+    gdcrypto::base64::Base64 b64(gdcrypto::base64::URL_SAFE_DICT);
+    auto buffer = b64.decode(std::vector<uint8_t>(str.begin(), str.end()));
+    return std::string(buffer.data(), buffer.data() + buffer.size());
 }
 
-std::string DECOMPRESS_GZIP(const string& str) {
-    #define MOD_GZIP_ZLIB_WINDOWSIZE 15
-    #define MOD_GZIP_ZLIB_CFACTOR    9
-    #define MOD_GZIP_ZLIB_BSIZE      8096
+std::string DECOMPRESS_GZIP(const std::string& str) {
+    auto buffer = gdcrypto::zlib::inflateBuffer(std::vector<uint8_t>(str.begin(), str.end()));
+    return std::string(buffer.data(), buffer.data() + buffer.size());
+}
 
-    z_stream zs;                        // z_stream is zlib's control structure
-    memset(&zs, 0, sizeof(zs));
+std::string GET_KEY(std::string DATA, std::string KEY, std::string TYPE = ".*?") {
+    if (TYPE == "") {
+        std::regex m ("<k>" + KEY + "</k>");
+        return (std::regex_search(DATA, m)) ? "True" : "False";
+    } else {
+        std::regex m ("<k>" + KEY + "</k><" + TYPE + ">");
+        std::match_results<const char*> cm;
+        std::regex_search(DATA, cm, m, std::regex_constants::match_default);
 
-    if (inflateInit2(&zs, MOD_GZIP_ZLIB_WINDOWSIZE + 16) != Z_OK)
-        throw(std::runtime_error("inflateInit failed while decompressing."));
-
-    zs.next_in = (Bytef*)str.data();
-    zs.avail_in = str.size();
-
-    int ret;
-    char outbuffer[32768];
-    std::string outstring;
-
-    // get the decompressed bytes blockwise using repeated calls to inflate
-    do {
-        zs.next_out = reinterpret_cast<Bytef*>(outbuffer);
-        zs.avail_out = sizeof(outbuffer);
-
-        ret = inflate(&zs, 0);
-
-        if (outstring.size() < zs.total_out) {
-            outstring.append(outbuffer,
-                             zs.total_out - outstring.size());
+        std::cout << "the matches were: ";
+        for (unsigned i=0; i<cm.size(); ++i) {
+            std::cout << "[" << cm[i] << "] ";
         }
-
-    } while (ret == Z_OK);
-
-    inflateEnd(&zs);
-
-    if (ret != Z_STREAM_END) {          // an error occurred that was not EOF
-        std::ostringstream oss;
-        oss << "Exception during zlib decompression: (" << ret << ") "
-            << zs.msg;
-        throw(std::runtime_error(oss.str()));
     }
-
-    return outstring;
 }
 
 int main(int ARGC, char *ARGS[]) {
     if (ARGC > 1) {
-        cout << "Loading info for " << ARGC-1 << " level(s)... \n";
+        std::cout << "Loading info for " << ARGC-1 << " level(s)... \n";
 
         // load CCLocalLevels path
-        string CCPATH = GET_CC();
-        string CCCONTENTS = READ_FILE(CCPATH);
+        std::string CCPATH = GET_CC();
+        std::vector<uint8_t> CCCONTENTS = READ_FILE(CCPATH);
 
-        string XOR = DECODE_XOR(CCCONTENTS, 11);
-        REPL(XOR, "_", "/");
-        REPL(XOR, "-", "+");
-        REPL(XOR, "\0", "");
-        int REM = XOR.length() % 4;
-        if (REM > 0) for (int r = 0; r < REM; r++) { XOR += "="; }
-        string B64 = DECODE_BASE64(XOR);
-        string ZLIB = DECOMPRESS_GZIP(B64);
+        DECODE_XOR(CCCONTENTS, 11);
+        auto XOR = std::string(CCCONTENTS.begin(), CCCONTENTS.end());
+        std::string B64 = DECODE_BASE64(XOR);
+        std::string ZLIB = DECOMPRESS_GZIP(B64);
 
-        cout << ZLIB;
+        std::cout << "Decoded CCLocalLevels...";
 
         for (int i = 0; i < ARGC - 1; i++) {
-            string LEVEL_NAME = ARGS[i+1];
+            std::string LEVEL_NAME = ARGS[i+1];
         }
 
-        cout << "\n---Finished! :)---\n";
+        std::cout << "\n---Finished! :)---\n";
     } else {
-        cout << "You need to supply a level name to run this exe.";
+        std::cout << "You need to supply a level name to run this exe.";
     }
 
     return 0;
