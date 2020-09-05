@@ -22,25 +22,39 @@
 
 #define CHUNK 16384
 
-#define APP_VERSION "v0.11"
+#define APP_VERSION "v1.0"
 
 // RUN COMMAND: clang ginfo.cpp ext/ZlibHelper.cpp -o gd.exe -L"." -lshell32 -lole32 -lzlib -m32 -std=c++17 -O3; ./gd.exe moi
 
-bool REPL(std::string& str, const std::string& from, const std::string& to) {
-    size_t start_pos = str.find(from);
-    if (start_pos == std::string::npos) return false;
-    str.replace(start_pos, from.length(), to);
-    return true;
+std::string REPL( std::string const& original, std::string const& from, std::string const& to ) {
+    std::string results;
+    std::string::const_iterator end = original.end();
+    std::string::const_iterator current = original.begin();
+    std::string::const_iterator next = std::search( current, end, from.begin(), from.end() );
+    while ( next != end ) {
+        results.append( current, next );
+        results.append( to );
+        current = next + from.size();
+        next = std::search( current, end, from.begin(), from.end() );
+    }
+    results.append( current, next );
+    return results;
 }
 
 std::vector<uint8_t> READ_FILE(std::string const& path) {
-    std::ifstream file(path, std::ios::binary);
+    std::vector<uint8_t> buffer;
+    std::ifstream file(path, std::ios::ate, std::ios::binary);
 
     if (file.is_open()) {
-        return std::vector<uint8_t>(std::istreambuf_iterator(file), {});
+        buffer.resize(file.tellg());
+        file.seekg(0, std::ios::beg);
+
+        file.read(
+            reinterpret_cast<char*>(buffer.data()),
+            buffer.size());
     }
 
-    return {};
+    return buffer;
 }
 
 std::string GET_CC(std::string WHICH = "LocalLevels") {
@@ -96,18 +110,62 @@ std::string GET_KEY(const std::string DATA, std::string KEY, std::string TYPE = 
     }
 }
 
-std::string * GET_LEVELS(const std::string DATA) {
-    std::regex m ("<k>k_\\d+<\\/k>.+?<\\/d>\\n? *<\\/d>");
+std::vector<std::string> GET_LEVELS(const std::string DATA) {
+    std::regex m ("<k>k_[0-9]+<\\/k>.*?<\\/d>.*?<\\/d>");
     std::smatch sm;
-    std::regex_search(DATA, sm, m);
 
-    std::string * LIST = new std::string [sm.size() + 1];
+    std::string RED = DATA;
+    std::vector<std::string> LIST (1);
 
-    for (unsigned int i = 0; i < sm.size(); i++) {
-        LIST[i] = sm[i];
+    int i = 0;
+    while (std::regex_search(RED, sm, m)) {
+        LIST.resize(i + 1);
+        LIST[i] = sm[0];
+
+        i++;
+
+        RED = RED.substr(sm[0].length() - 5);
     }
 
     return LIST;
+}
+
+std::string REPL_O_SONG(int ID) {
+    std::string arr[21] = {
+        "Stereo Madness",
+        "Back on Track",
+        "Polargeist",
+        "Dry Out",
+        "Base After Base",
+        "Cant Let Go",
+        "Jumper",
+        "Time Machine",
+        "Cycles",
+        "xStep",
+        "Clutterfunk",
+        "Theory of Everything",
+        "Electronman Adventures",
+        "Clubstep",
+        "Electrodynamix",
+        "Hexagon Force",
+        "Blast Processing",
+        "Theory of Everything 2",
+        "Geometrical Dominator",
+        "Deadlocked",
+        "Fingerdash"
+    };
+    return ID <= 20 && ID >= 0 ? arr[ID] : "Unknown";
+}
+
+std::string REPL_LENGTH(int L) {
+    std::string LGTS[5] = {
+        "Tiny",
+        "Short",
+        "Medium",
+        "Long",
+        "XL"
+    };
+    return L >= 0 && L <= 4 ? LGTS[L] : "Unknown";
 }
 
 int main(int ARGC, char *ARGS[]) {
@@ -132,28 +190,52 @@ int main(int ARGC, char *ARGS[]) {
         // loop through args
         for (int i = 0; i < ARGC - 1; i++) {
             std::string LEVEL_NAME = ARGS[i+1];
+            LEVEL_NAME = REPL(LEVEL_NAME, "_", " ");
 
             std::cout << std::endl << "--- Info on " << LEVEL_NAME << " ---" << std::endl;
 
-            std::string * LVLS = GET_LEVELS(ZLIB);
+            std::vector<std::string> LVLS = GET_LEVELS(ZLIB);
 
             std::string LVL = "";
 
-            for (int i = 0; i < 50; i++) {
+            for (int i = 0; i < LVLS.size(); i++) {
                 if (GET_KEY(LVLS[i], "k2") == LEVEL_NAME) {
                     LVL = LVLS[i];
                 }
             }
 
             if (LVL == "") {
-                std::cout << "Could not find level!" << std::endl;
-                return 1;
+                std::cout << std::endl << "Could not find level! (Replace spaces in name with _)" << std::endl;
+            } else {
+                std::string LGT = GET_KEY(LVL, "k23");
+                std::string PW = GET_KEY(LVL, "k41");
+                std::string SONG = GET_KEY(LVL, "k8");
+                std::vector<uint8_t> D_BUFF = DECODE_BASE64(GET_KEY(LVL, "k3"));
+                std::string DESC = std::string(D_BUFF.data(), D_BUFF.data() + D_BUFF.size());
+                std::string REV = GET_KEY(LVL, "k46");
+                std::string COPY = GET_KEY(LVL, "k42");
+                std::string ATT = GET_KEY(LVL, "k18");
+                long E_TIME = std::stol(GET_KEY(LVL, "k80"));
+
+                std::cout << std::endl << "Name: \t\t" <<          GET_KEY(LVL, "k2");
+                std::cout << std::endl << "Creator: \t" <<       GET_KEY(LVL, "k5");
+                std::cout << std::endl << "Length: \t" <<        (LGT == "" ? "Tiny" : REPL_LENGTH(std::stoi(LGT)));
+                std::cout << std::endl << "Version: \t" <<       GET_KEY(LVL, "k16");
+                std::cout << std::endl << "Password: \t" <<      (PW == "1" || PW == "" ? "Free to Copy" : PW == "0" ? "No Copy" : PW);
+                std::cout << std::endl << "Song: \t\t" <<          (SONG != "" ? REPL_O_SONG(std::stoi(SONG)) : GET_KEY(LVL, "k45"));
+                std::cout << std::endl << "Description: \t" <<   (DESC == "" ? "None" : DESC);
+                std::cout << std::endl << "Object count: \t" <<  GET_KEY(LVL, "k48");
+                std::cout << std::endl << "Editor time: \t" <<   (E_TIME > 3600 ? std::to_string((int)(E_TIME / 3600.0)) + "h" : std::to_string((int)(E_TIME / 60.0)) + "m" );
+                std::cout << std::endl << "Verified: \t" <<      GET_KEY(LVL, "k14", "");
+                std::cout << std::endl << "Attempts: \t" <<      (ATT == "" ? "None" : ATT);
+                std::cout << std::endl << "Revision: \t" <<      (REV == "" ? "None" : REV);
+                std::cout << std::endl << "Copied from: \t" <<   (COPY == "" ? "None" : COPY);
             }
 
-            std::cout << GET_KEY(LVL, "k5");
+            std::cout << std::endl << std::endl;
         }
 
-        std::cout << "\n---Finished! :)---\n";
+        std::cout << "\n--- Finished! :) ---\n";
     } else {
         std::cout << "You need to supply a level name to run this exe.";
     }
