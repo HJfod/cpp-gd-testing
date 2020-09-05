@@ -8,6 +8,7 @@
 #include <vector>
 #include <assert.h>
 #include <regex>
+#include <chrono>
 #include "ext/ZlibHelper.hpp"
 #include "ext/Base64.hpp"
 
@@ -21,7 +22,9 @@
 
 #define CHUNK 16384
 
-// RUN COMMAND: clang ginfo.cpp ext/ZlibHelper.cpp -o gd.exe -L"." -lshell32 -lole32 -lzlib -m32 -std=c++17; ./gd.exe moi
+#define APP_VERSION "v0.11"
+
+// RUN COMMAND: clang ginfo.cpp ext/ZlibHelper.cpp -o gd.exe -L"." -lshell32 -lole32 -lzlib -m32 -std=c++17 -O3; ./gd.exe moi
 
 bool REPL(std::string& str, const std::string& from, const std::string& to) {
     size_t start_pos = str.find(from);
@@ -59,50 +62,95 @@ void DECODE_XOR(std::vector<uint8_t>& BYTES, int KEY) {
         b ^= KEY;
 }
 
-std::string DECODE_BASE64(const std::string& str) {
+std::vector<uint8_t> DECODE_BASE64(const std::string& str) {
     gdcrypto::base64::Base64 b64(gdcrypto::base64::URL_SAFE_DICT);
-    auto buffer = b64.decode(std::vector<uint8_t>(str.begin(), str.end()));
+    return b64.decode(str);
+}
+
+std::string DECOMPRESS_GZIP(const std::vector<uint8_t> str) {
+    auto buffer = gdcrypto::zlib::inflateBuffer(str);
     return std::string(buffer.data(), buffer.data() + buffer.size());
 }
 
-std::string DECOMPRESS_GZIP(const std::string& str) {
-    auto buffer = gdcrypto::zlib::inflateBuffer(std::vector<uint8_t>(str.begin(), str.end()));
-    return std::string(buffer.data(), buffer.data() + buffer.size());
-}
-
-std::string GET_KEY(std::string DATA, std::string KEY, std::string TYPE = ".*?") {
+std::string GET_KEY(const std::string DATA, std::string KEY, std::string TYPE = ".*?") {
     if (TYPE == "") {
         std::regex m ("<k>" + KEY + "</k>");
         return (std::regex_search(DATA, m)) ? "True" : "False";
     } else {
         std::regex m ("<k>" + KEY + "</k><" + TYPE + ">");
-        std::match_results<const char*> cm;
-        std::regex_search(DATA, cm, m, std::regex_constants::match_default);
+        std::smatch cm;
+        std::regex_search(DATA, cm, m);
 
-        std::cout << "the matches were: ";
-        for (unsigned i=0; i<cm.size(); ++i) {
-            std::cout << "[" << cm[i] << "] ";
-        }
+        if (cm[0] == "") return "";
+
+        std::string T_TYPE = ((std::string)cm[0]).substr(((std::string)cm[0]).find_last_of("<") + 1, 1);
+
+        std::regex tm ("<k>" + KEY + "</k><" + T_TYPE + ">.*?</" + T_TYPE + ">");
+        std::smatch tcm;
+        std::regex_search(DATA, tcm, tm);
+
+        std::string VAL = tcm[0];
+
+        int L1 = ("<k>" + KEY + "</k><" + T_TYPE + ">").length();
+        return VAL.substr(L1, VAL.find_last_of("</") - L1 - 1);
     }
+}
+
+std::string * GET_LEVELS(const std::string DATA) {
+    std::regex m ("<k>k_\\d+<\\/k>.+?<\\/d>\\n? *<\\/d>");
+    std::smatch sm;
+    std::regex_search(DATA, sm, m);
+
+    std::string * LIST = new std::string [sm.size() + 1];
+
+    for (unsigned int i = 0; i < sm.size(); i++) {
+        LIST[i] = sm[i];
+    }
+
+    return LIST;
 }
 
 int main(int ARGC, char *ARGS[]) {
     if (ARGC > 1) {
+        std::cout << "GD Level Info Tool " << APP_VERSION << std::endl << std::endl;
         std::cout << "Loading info for " << ARGC-1 << " level(s)... \n";
 
-        // load CCLocalLevels path
+        auto TIME_MEASURE = std::chrono::high_resolution_clock::now();
+
+        // load CCLocalLevels
         std::string CCPATH = GET_CC();
         std::vector<uint8_t> CCCONTENTS = READ_FILE(CCPATH);
 
         DECODE_XOR(CCCONTENTS, 11);
         auto XOR = std::string(CCCONTENTS.begin(), CCCONTENTS.end());
-        std::string B64 = DECODE_BASE64(XOR);
+        std::vector<uint8_t> B64 = DECODE_BASE64(XOR);
         std::string ZLIB = DECOMPRESS_GZIP(B64);
 
-        std::cout << "Decoded CCLocalLevels...";
+        std::chrono::duration<double> elapsed = std::chrono::high_resolution_clock::now() - TIME_MEASURE;
+        std::cout << "Decoded CCLocalLevels in " << elapsed.count() * 1000 << "ms" << std::endl;
 
+        // loop through args
         for (int i = 0; i < ARGC - 1; i++) {
             std::string LEVEL_NAME = ARGS[i+1];
+
+            std::cout << std::endl << "--- Info on " << LEVEL_NAME << " ---" << std::endl;
+
+            std::string * LVLS = GET_LEVELS(ZLIB);
+
+            std::string LVL = "";
+
+            for (int i = 0; i < 50; i++) {
+                if (GET_KEY(LVLS[i], "k2") == LEVEL_NAME) {
+                    LVL = LVLS[i];
+                }
+            }
+
+            if (LVL == "") {
+                std::cout << "Could not find level!" << std::endl;
+                return 1;
+            }
+
+            std::cout << GET_KEY(LVL, "k5");
         }
 
         std::cout << "\n---Finished! :)---\n";
