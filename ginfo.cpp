@@ -222,7 +222,7 @@ int main(int ARGC, char *ARGS[]) {
                 std::cout << std::endl << "Length: \t" <<        (LGT == "" ? "Tiny" : REPL_LENGTH(std::stoi(LGT)));
                 std::cout << std::endl << "Version: \t" <<       GET_KEY(LVL, "k16");
                 std::cout << std::endl << "Password: \t" <<      (PW == "1" || PW == "" ? "Free to Copy" : PW == "0" ? "No Copy" : PW);
-                std::cout << std::endl << "Song: \t\t" <<          (SONG != "" ? REPL_O_SONG(std::stoi(SONG)) : GET_KEY(LVL, "k45"));
+                std::cout << std::endl << "Song: \t\t" <<        (SONG != "" ? REPL_O_SONG(std::stoi(SONG)) : GET_KEY(LVL, "k45") == "" ? "Unknown" : GET_KEY(LVL, "k45"));
                 std::cout << std::endl << "Description: \t" <<   (DESC == "" ? "None" : DESC);
                 std::cout << std::endl << "Object count: \t" <<  GET_KEY(LVL, "k48");
                 std::cout << std::endl << "Editor time: \t" <<   (E_TIME > 3600 ? std::to_string((int)(E_TIME / 3600.0)) + "h" : std::to_string((int)(E_TIME / 60.0)) + "m" );
